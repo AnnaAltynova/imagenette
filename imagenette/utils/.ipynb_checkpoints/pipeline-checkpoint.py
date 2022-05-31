@@ -2,6 +2,12 @@ import torch
 import pickle
 import os
 from sklearn.metrics import accuracy_score
+import pandas as pd
+from IPython.display import clear_output
+import matplotlib.pyplot as plt
+
+plt.rcParams['figure.figsize'] = (8.0, 8.0) 
+plt.rcParams['image.interpolation'] = 'nearest'
 
 
 def train(model, iterator, optimizer, criterion, device, train_history=None, valid_history=None, accuracy_history=None):
@@ -48,7 +54,7 @@ def train(model, iterator, optimizer, criterion, device, train_history=None, val
     return epoch_loss / len(iterator)
 
 
-def evaluate(model, iterator, criterion, num_to_name):
+def evaluate(model, iterator, criterion, num_to_name, device):
     
     model.eval()
     
@@ -62,12 +68,12 @@ def evaluate(model, iterator, criterion, num_to_name):
         for i, (imgs, labels) in enumerate(iterator):
 
             imgs = imgs.to(device)
-            labels = labels.to(device)
+            # labels = labels.
 
-            output = model(imgs) 
-            preds = output.argmax(axis=1)
+            output = model(imgs).detach().cpu()
+            preds = output.argmax(axis=1).numpy()
         
-            batch_preds = pd.DataFrame({'true_num': labels, 'pred_num': preds})
+            batch_preds = pd.DataFrame({'true_num': labels.numpy(), 'pred_num': preds})
             predictions = predictions.append(batch_preds, ignore_index=True)
 
             loss = criterion(output, labels)
@@ -97,13 +103,18 @@ def train_pipeline(n_epochs, model, train_iterator, val_iterator, optimizer, cri
     for epoch in range(n_epochs):
     
         train_loss = train(model, train_iterator, optimizer, criterion, device, train_history, valid_history, accuracy_history)
-        valid_loss, epoch_accuracy, epoch_predictions = evaluate(model, val_iterator, criterion, num_to_name)
+        valid_loss, epoch_accuracy, epoch_predictions = evaluate(model, val_iterator, criterion, num_to_name, device)
         if scheduler is not None:
             scheduler.step(valid_loss)
+            
+        
+        train_history.append(train_loss)
+        valid_history.append(valid_loss)
+        accuracy_history.append(epoch_accuracy)
 
         if valid_loss < best_valid_loss:
             best_valid_loss = valid_loss
-            torch.save(vgg.state_dict(), os.path.join(ckpt_path, f'{model_name}_model.pt'))
+            torch.save(model.state_dict(), os.path.join(ckpt_path, f'{model_name}_model.pt'))
 
             with open(os.path.join(losses_path, f'train_loss_{model_name}.pickle'), 'wb') as f:
                 pickle.dump(train_history, f)
@@ -112,9 +123,5 @@ def train_pipeline(n_epochs, model, train_iterator, val_iterator, optimizer, cri
             with open(os.path.join(losses_path, f'accuracy_{model_name}.pickle'), 'wb') as f:
                 pickle.dump(accuracy_history, f)
             with open(os.path.join(predictions_path, f'predictions_{model_name}.csv'), 'w') as f:
-                predictions.to_csv(f)
+                epoch_predictions.to_csv(f)
 
-
-        train_history.append(train_loss)
-        valid_history.append(valid_loss)
-        accuracy_history.append(epoch_accuracy)

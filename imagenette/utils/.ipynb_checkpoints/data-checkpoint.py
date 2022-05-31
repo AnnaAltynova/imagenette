@@ -63,19 +63,27 @@ def get_norm_stats(data_path: str, size=224, batch_size=256) -> Tuple[float, flo
     return mean, std
 
 
-def get_transforms(mean, std, size=224, augment=False):
+def get_transforms(mean, std, size=224):
+    transform = T.Compose([
+        T.ToTensor(),
+        T.Resize(size), 
+        T.CenterCrop(size),
+        T.Normalize(mean=mean, std=std),
+    ])
+    return transform 
+
+
+def get_augmented_transforms(mean, std, size=224):
     train_transform = T.Compose([
         T.ToTensor(),
         T.Resize(size), 
         T.CenterCrop(size),
         T.Normalize(mean=mean, std=std),
+        T.RandomHorizontalFlip(p=1),
+        T.RandomRotation(degrees=90),
+        T.RandomInvert(p=0.5)
+        
     ])
-
-    val_transform = T.Compose([
-        T.ToTensor(),
-        T.Resize(size), 
-        T.CenterCrop(size),
-        T.Normalize(mean=mean, std=std),
-    ])
-    return train_transform, val_transform 
+    
+    return train_transform
     
