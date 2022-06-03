@@ -1,13 +1,37 @@
 import torch
-import pickle
+import json
 import os
 from sklearn.metrics import accuracy_score
-import pandas as pd
 from IPython.display import clear_output
 import matplotlib.pyplot as plt
+ 
 
-plt.rcParams['figure.figsize'] = (8.0, 8.0) 
-plt.rcParams['image.interpolation'] = 'nearest'
+def make_plot(epoch_history, train_history, valid_history, accuracy_history):
+    fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(18, 8))
+    clear_output(True)
+    
+    ax[0].plot(epoch_history, label='epoch train loss')
+    ax[0].set_xlabel('Batch')
+    ax[0].set_title('Epoch train loss')
+    ax[0].legend()
+    
+    if train_history is not None:
+        ax[1].plot(train_history, label='general train history')
+        ax[1].set_xlabel('Epoch')
+        
+    if valid_history is not None:
+        ax[1].set_title('Loss')
+        ax[1].plot(valid_history, label='general valid history')
+        ax[1].legend()
+        
+    if accuracy_history is not None:
+        ax[2].set_title('Accuracy')
+        ax[2].plot(accuracy_history, label='general accuracy history')
+        ax[2].set_xlabel('Epoch')
+        ax[2].legend()
+
+    plt.show()
+
 
 
 def train(model, iterator, optimizer, criterion, device, train_history=None, valid_history=None, accuracy_history=None):
@@ -32,95 +56,92 @@ def train(model, iterator, optimizer, criterion, device, train_history=None, val
         
         epoch_loss += loss.item()
         
-        history.append(loss.cpu().data.numpy()) # см доки detach 
-        if (i+1)%10==0:
-            fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 8))
-
-            clear_output(True)
-            ax[0].plot(history, label='train loss')
-            ax[0].set_xlabel('Batch')
-            ax[0].set_title('Train loss')
-            if train_history is not None:
-                ax[1].plot(train_history, label='general train history')
-                ax[1].set_xlabel('Epoch')
-            if valid_history is not None:
-                ax[1].plot(valid_history, label='general valid history')
-            if accuracy_history is not None:
-                ax[1].plot(accuracy_history, label='general accuracy history')
-            plt.legend()
+        history.append(loss.cpu().data.numpy())
+        if (i + 1) % 10 == 0:
+            make_plot(history, train_history, valid_history, accuracy_history)
             
-            plt.show()
-
     return epoch_loss / len(iterator)
 
 
-def evaluate(model, iterator, criterion, num_to_name, device):
+def evaluate(model, iterator, criterion, device):
     
     model.eval()
     
     epoch_loss = 0
     epoch_accuracy = 0
     
-    predictions = pd.DataFrame(columns=['true_num', 'pred_num', 'true_name', 'pred_name'])
-    
     with torch.no_grad():
     
         for i, (imgs, labels) in enumerate(iterator):
 
             imgs = imgs.to(device)
+            labels_device = labels.to(device)
 
-            output = model(imgs).detach().cpu()
-            preds = output.argmax(axis=1).numpy()
-        
-            batch_preds = pd.DataFrame({'true_num': labels.numpy(), 'pred_num': preds})
-            predictions = predictions.append(batch_preds, ignore_index=True)
+            output = model(imgs)
+            predictions = output.argmax(axis=1).detach().cpu().numpy().astype(int)
 
-            loss = criterion(output, labels)
+            loss = criterion(output, labels_device)
             
             epoch_loss += loss.item()
             
-            
-        epoch_accuracy += accuracy_score(predictions['true_num'].astype(int), predictions['pred_num'].astype(int))
-        
-        predictions['pred_name'] = predictions['pred_num'].apply(lambda x: num_to_name[x])
-        predictions['true_name'] = predictions['true_num'].apply(lambda x: num_to_name[x])
-        
-    return epoch_loss / len(iterator), epoch_accuracy, predictions
+            epoch_accuracy += accuracy_score(labels.numpy().astype(int), predictions)
+         
+    return epoch_loss / len(iterator), epoch_accuracy / len(iterator)
 
 
-def train_pipeline(n_epochs, model, train_iterator, val_iterator, optimizer, criterion,
-                   saves_path, num_to_name, device, scheduler=None, model_name='vgg11'):
-    train_history = []
-    valid_history = []
-    accuracy_history = []
+def train_procedure(n_epochs, model, train_iterator, val_iterator, optimizer, criterion,
+                   saves_path, device, start_epoch=0, scheduler=None, model_name='vgg11'):
+    logs_path = os.path.join(saves_path, 'logs.json')
+    ckpt_path = os.path.join(saves_path, f'ckpts/{model_name}_model.pt')
     
+    if os.path.isfile(logs_path):
+        with open(logs_path, 'r') as f:
+            logs = json.load(f)
+    else:
+        logs = {}
+    
+    if model_name in logs:
+        model_logs = logs[model_name]
+    else:
+        model_logs = {'train_history': [], 'valid_history': [], 'accuracy_history': []}
+        logs[model_name] = model_logs
+   
     best_valid_loss = float('inf')
-    ckpt_path = os.path.join(saves_path, 'ckpts')
-    losses_path = os.path.join(saves_path, 'losses')
-    predictions_path = os.path.join(saves_path, 'predictions')
     
-    for epoch in range(n_epochs):
+    for epoch in range(start_epoch, n_epochs):
     
-        train_loss = train(model, train_iterator, optimizer, criterion, device, train_history, valid_history, accuracy_history)
-        valid_loss, epoch_accuracy, epoch_predictions = evaluate(model, val_iterator, criterion, num_to_name, device)
+        train_loss = train(model, train_iterator, optimizer, criterion, device,  model_logs['train_history'],
+                           model_logs['valid_history'], model_logs['accuracy_history']) 
+        valid_loss, accuracy = evaluate(model, val_iterator, criterion, device)
+        
         if scheduler is not None:
             scheduler.step(valid_loss)
-            
         
-        train_history.append(train_loss)
-        valid_history.append(valid_loss)
-        accuracy_history.append(epoch_accuracy)
+        model_logs['train_history'].append(train_loss)
+        model_logs['valid_history'].append(valid_loss)
+        model_logs['accuracy_history'].append(accuracy)
 
         if valid_loss < best_valid_loss:
             best_valid_loss = valid_loss
-            torch.save(model.state_dict(), os.path.join(ckpt_path, f'{model_name}_model.pt'))
-
-            with open(os.path.join(losses_path, f'train_loss_{model_name}.pickle'), 'wb') as f:
-                pickle.dump(train_history, f)
-            with open(os.path.join(losses_path, f'val_loss_{model_name}.pickle'), 'wb') as f:
-                pickle.dump(valid_history, f)
-            with open(os.path.join(losses_path, f'accuracy_{model_name}.pickle'), 'wb') as f:
-                pickle.dump(accuracy_history, f)
-            with open(os.path.join(predictions_path, f'predictions_{model_name}.csv'), 'w') as f:
-                epoch_predictions.to_csv(f)
-
+            torch.save({
+                        'epoch': epoch,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        }, ckpt_path)
+            
+        with open(logs_path, 'w') as f:
+            json.dump(logs, f)
+        
+        
+def resume_training(model, optimizer, ckpt_path):
+    checkpoint = torch.load(ckpt_path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    epoch = checkpoint['epoch']
+    
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    for state in optimizer.state.values():
+        for k, v in state.items():
+            if torch.is_tensor(v):
+                state[k] = v.cuda()
+            
+    return epoch
