@@ -81,24 +81,4 @@ class Resnet18(nn.Module):
         x = self.flatten(x)
         x = self.dense(x)
         return x
-                 
-    
-    # return torch.nn.Sequential(
-    #     # in: 224x224x3
-    #     conv_block(kernel_size=7, in_channels=in_channels, out_channels=64, stride=2),
-    #     # in: 112x112x64
-    #     nn.MaxPool2d(kernel_size=2, stride=2),
-    #     # in: 56x56x64
-    #     ResnetBlock(64, 64),
-    #     # in: 56x56x64
-    #     ResnetBlock(64, 128),
-    #     # in: 28x28x128
-    #     ResnetBlock(128, 256),
-    #     # in: 14x14x256
-    #     ResnetBlock(256, 512),
-    #     # in: 7x7x512
-    #     nn.AvgPool2d(kernel_size=7),
-    #     nn.Flatten(),
-    #     nn.Linear(512, out_channels)
-    # )
         
