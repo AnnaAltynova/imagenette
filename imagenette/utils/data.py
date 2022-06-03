@@ -8,10 +8,6 @@ from torch.utils.data import Dataset
 import torchvision.transforms as T
 from torch.utils.data import DataLoader
 
-np.random.seed(1234)
-torch.manual_seed(1234) 
-
-
 
 def generate_labels(directory: str, out_path: str) -> None:
     class_names = [name for name in os.listdir(directory) if name != '.ipynb_checkpoints']
