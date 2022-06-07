@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import Tuple
 import PIL 
+import os 
 
 import torch
 from torch.utils.data import Dataset
@@ -21,14 +22,14 @@ def generate_labels(directory: str, out_path: str) -> None:
                                       'class_num': np.repeat(name_to_num[class_name], len(files))}, 
                                 index=range(len(files)))
         labels = labels.append(class_df, ignore_index= True)
-    labels.to_csv(out_path) 
+    labels.to_csv(out_path, index=False) 
     return 
 
 
 class ImagenetteDataset(Dataset):
     def __init__(self, labels_csv_path: str, transform: None):
         self.labels = pd.read_csv(labels_csv_path)
-        self.labels.drop(columns=['Unnamed: 0'], inplace=True)
+        # self.labels.drop(columns=['Unnamed: 0'], inplace=True)
         self.transform = transform
         
     def __len__(self):
