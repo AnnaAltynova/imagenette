@@ -21,11 +21,38 @@ class ConvBlock(nn.Module):
         x = self.conv(x)
         x = self.bn(x)
         return x    
+    
+    
+class SEBlock(nn.Module):
+    def __init__(self, in_channels, squeeze_ratio=4):
+        super().__init__()
+        self.in_channels = in_channels
+        
+        self.squeeze = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.flatten1 = nn.Flatten()
+        self.fc1 = nn.Linear(in_features=in_channels, out_features=in_channels // squeeze_ratio)
+        self.flatten2 = nn.Flatten()
+        self.fc2 = nn.Linear(in_features=in_channels // squeeze_ratio, out_features=in_channels)
+        self.sigmoid = nn.Sigmoid()
+        
+        
+    def forward(self, x):
+        se = self.squeeze(x)
+        se = self.flatten1(se)
+        se = self.fc1(se)
+        se = F.relu(se)
+        se = self.flatten2(se)
+        se = self.fc2(se)
+        se = self.sigmoid(se).view(-1, self.in_channels, 1, 1)
+        output = x * se
+        return output
+        
 
 class ResnetBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, SE=False,  se_squeeze_ratio=4):
         super().__init__()
         self.projection = nn.Identity()
+        self.se = SEBlock(in_channels=out_channels, squeeze_ratio=se_squeeze_ratio) if SE else nn.Identity()
         stride = 1
         
         if in_channels != out_channels:
@@ -41,6 +68,7 @@ class ResnetBlock(nn.Module):
         f = self.conv1(x)
         f = F.relu(f)
         f = self.conv2(f) 
+        f = self.se(f)
         identity = self.projection(identity) 
         f = f + identity
         f = F.relu(f)
@@ -48,9 +76,10 @@ class ResnetBlock(nn.Module):
     
 
 class BottleneckBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, downsample=False, squeeze_ratio=4):
+    def __init__(self, in_channels, out_channels, downsample=False, squeeze_ratio=4,  SE=False,  se_squeeze_ratio=4):
         super().__init__()
         self.projection = nn.Identity()
+        self.se = SEBlock(in_channels=out_channels, squeeze_ratio=se_squeeze_ratio) if SE else nn.Identity()
         stride = 1
             
         if downsample:
@@ -72,6 +101,7 @@ class BottleneckBlock(nn.Module):
         f = self.conv2(f)
         f = F.relu(f)
         f = self.conv3(f)
+        f = self.se(f)
         identity = self.projection(identity)
         f = f + identity
         f = F.relu(f)
@@ -79,8 +109,9 @@ class BottleneckBlock(nn.Module):
    
 
 class ResnetDBlock(BottleneckBlock):
-    def __init__(self, in_channels, out_channels, downsample=False, squeeze_ratio=4):
-        super().__init__(in_channels=in_channels, out_channels=out_channels, downsample=downsample, squeeze_ratio=squeeze_ratio)
+    def __init__(self, in_channels, out_channels, downsample=False, squeeze_ratio=4, SE=False,  se_squeeze_ratio=4):
+        super().__init__(in_channels=in_channels, out_channels=out_channels, downsample=downsample, squeeze_ratio=squeeze_ratio,
+                        SE=SE,  se_squeeze_ratio=se_squeeze_ratio)
         projection_layers = [nn.Identity()]
         stride = 1
             
@@ -101,7 +132,7 @@ class ResnetDBlock(BottleneckBlock):
         
     
 class Resnet(nn.Module):
-    def __init__(self, num_layers=18, in_channels=3, out_dim=10):
+    def __init__(self, num_layers=18, in_channels=3, out_dim=10, SE=False,  se_squeeze_ratio=4):
         super().__init__()
         if num_layers == 18:
             self.blocks_cnt = (2, 2, 2, 2)
@@ -113,6 +144,9 @@ class Resnet(nn.Module):
             print(f'resnet with num_layers {num_layers} is not implemented, building with 18 layers')
             num_layers = 18
             
+        self.se = SE
+        self.se_squeeze_ratio = se_squeeze_ratio
+        
         self.num_layers = num_layers
         self.in_channels = 64 
         
@@ -144,7 +178,8 @@ class Resnet(nn.Module):
     def _add_basic_layer(self, out_channels, n_blocks):
         blocks = []
         for i in range(n_blocks):
-            blocks.append(ResnetBlock(in_channels=self.in_channels, out_channels=out_channels))
+            blocks.append(ResnetBlock(in_channels=self.in_channels, out_channels=out_channels, 
+                                      SE=self.se, se_squeeze_ratio=self.se_squeeze_ratio))
             self.in_channels = out_channels 
         return nn.Sequential(*blocks)
     
@@ -153,7 +188,8 @@ class Resnet(nn.Module):
         blocks = []
         for i in range(n_blocks):
             blocks.append(BottleneckBlock(in_channels=self.in_channels, out_channels=out_channels,
-                                          downsample=downsample, squeeze_ratio=squeeze_ratio))
+                                          downsample=downsample, squeeze_ratio=squeeze_ratio,
+                                          SE=self.se, se_squeeze_ratio=self.se_squeeze_ratio))
             self.in_channels = out_channels 
             downsample = False
             squeeze_ratio = 4
@@ -186,15 +222,16 @@ class Resnet(nn.Module):
         
         
 class ResnetD(Resnet):
-    def __init__(self, in_channels=3, out_dim=10):
-        super().__init__(num_layers=50, in_channels=in_channels, out_dim=out_dim)
+    def __init__(self, in_channels=3, out_dim=10, SE=False,  se_squeeze_ratio=4):
+        super().__init__(num_layers=50, in_channels=in_channels, out_dim=out_dim, SE=SE, se_squeeze_ratio=se_squeeze_ratio)
         
     
     def _add_bottleneck_layer(self, out_channels, n_blocks, downsample, squeeze_ratio):         
         blocks = []
         for i in range(n_blocks):
             blocks.append(ResnetDBlock(in_channels=self.in_channels, out_channels=out_channels,
-                                          downsample=downsample, squeeze_ratio=squeeze_ratio))
+                                       downsample=downsample, squeeze_ratio=squeeze_ratio,
+                                       SE=self.se, se_squeeze_ratio=self.se_squeeze_ratio))
             self.in_channels = out_channels 
             downsample = False
             squeeze_ratio = 4
