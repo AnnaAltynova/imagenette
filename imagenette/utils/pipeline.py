@@ -34,7 +34,7 @@ def make_plot(epoch_history, train_history, valid_history, accuracy_history):
     plt.show()
     
 
-def plot_models(models_logs=['logs_resnet18_aug_lr4.json'], saves_path='saves', title=None):
+def plot_models(models_logs=['logs_resnet18_aug_lr4.json'], saves_path='saves/logs', title=None):
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(15, 8))
     if title is not None:
         plt.suptitle(title, fontsize='xx-large', x=0.5, y=0.95)
@@ -128,7 +128,7 @@ def evaluate(model, iterator, criterion, device):
 
 def train_procedure(n_epochs, model, train_iterator, val_iterator, optimizer, criterion,
                    saves_path, device, start_epoch=0, scheduler=None, model_name='vgg11'):
-    logs_path = os.path.join(saves_path, f'logs_{model_name}.json')
+    logs_path = os.path.join(saves_path, f'logs/logs_{model_name}.json')
     ckpt_path = os.path.join(saves_path, f'ckpts3/{model_name}_model.pt')
     
     if os.path.isfile(logs_path):
@@ -182,26 +182,3 @@ def load_model(model, optimizer, ckpt_path, device=torch.device('cuda:0' if torc
                 state[k] = v.cuda(device)
             
     return epoch
-
-
-
-def check_parameters():
-    resnet18 = Resnet(out_dim=1000)
-    my_18_param_cnt = resnet18.count_parameters()
-    resnet18_torch = models.resnet18(pretrained=False)
-    torch_18_param_cnt = sum(p.numel() for p in resnet18_torch.parameters() if p.requires_grad)
-    print(f'torch resnet18 param: {torch_18_param_cnt}, custom resnet18 param: {my_18_param_cnt}')
-    del resnet18
-    del resnet18_torch
-    resnet34 = Resnet(num_layers=34, out_dim=1000)
-    my_34_param_cnt = resnet34.count_parameters()
-    resnet34_torch = models.resnet34(pretrained=False)
-    torch_34_param_cnt = sum(p.numel() for p in resnet34_torch.parameters() if p.requires_grad)
-    print(f'torch resnet34 param: {torch_34_param_cnt}, custom resnet34 param: {my_34_param_cnt}')
-    del resnet34
-    del resnet34_torch
-    resnet50 = Resnet(num_layers=50, out_dim=1000)
-    my_50_param_cnt = resnet50.count_parameters()
-    resnet50_torch = models.resnet50(pretrained=False)
-    torch_50_param_cnt = sum(p.numel() for  p in resnet50_torch.parameters() if p.requires_grad)
-    print(f'torch resnet50 param: {torch_50_param_cnt}, custom resnet50 param: {my_50_param_cnt}')
