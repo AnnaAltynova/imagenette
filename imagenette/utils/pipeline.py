@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
  
 
 def make_plot(epoch_history, train_history, valid_history, accuracy_history):
+    """plot training process"""
     fig, ax = plt.subplots(nrows=1, ncols=3, figsize=(18, 8))
     clear_output(True)
     
@@ -35,6 +36,7 @@ def make_plot(epoch_history, train_history, valid_history, accuracy_history):
     
 
 def plot_models(models_logs=['logs_resnet18_aug_lr4.json'], saves_path='saves/logs', title=None):
+    """plot training logs of list of models"""
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(15, 8))
     if title is not None:
         plt.suptitle(title, fontsize='xx-large', x=0.5, y=0.95)

@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader
 
 
 def generate_labels(directory: str, out_path: str) -> None:
+    """"make csv file with path to files and corresponding labels"""
     class_names = [name for name in os.listdir(directory) if name != '.ipynb_checkpoints']
     name_to_num = dict(zip(class_names, range(len(class_names))))
     labels = pd.DataFrame(columns=['filepath', 'class_name', 'class_num'])
@@ -29,7 +30,6 @@ def generate_labels(directory: str, out_path: str) -> None:
 class ImagenetteDataset(Dataset):
     def __init__(self, labels_csv_path: str, transform: None):
         self.labels = pd.read_csv(labels_csv_path)
-        # self.labels.drop(columns=['Unnamed: 0'], inplace=True)
         self.transform = transform
         
     def __len__(self):
@@ -48,6 +48,7 @@ class ImagenetteDataset(Dataset):
         
         
 def get_norm_stats(data_path: str, size=224, batch_size=256) -> Tuple[float, float]:
+    """compute mean and std on large batch to perform normalisation """
     transform = T.Compose([
         T.ToTensor(),
         T.Resize(size), 
