@@ -85,9 +85,10 @@ def train(model, iterator, optimizer, criterion, device, train_history=None, val
         
         optimizer.zero_grad()
         
-        output = model(imgs)
-        
-        loss = criterion(output, labels)
+        with torch.cuda.amp.autocast():
+            output = model(imgs)
+
+            loss = criterion(output, labels)
         
         loss.backward()
         
@@ -96,40 +97,57 @@ def train(model, iterator, optimizer, criterion, device, train_history=None, val
         epoch_loss += loss.item()
         
         history.append(loss.cpu().data.numpy())
+        del output
+        del loss
+        del imgs
+        del labels
+        
         if (i + 1) % 10 == 0:
             make_plot(history, train_history, valid_history, accuracy_history)
             
     return epoch_loss / len(iterator)
 
 
-def evaluate(model, iterator, criterion, device):
+def accuracy2d_mean(preds, mask):
+    not_background_mask = mask[mask != 0]
+    preds_correct = preds[(mask == preds)]
+    preds_correct_not_background = preds_correct[preds_correct != 0]
+    return preds_correct_not_background.size / not_background_mask.size
+
+
+def evaluate(model, iterator, criterion, device, segmentation=False):
     
     model.eval()
     
     epoch_loss = 0
     epoch_accuracy = 0
     
-    with torch.no_grad():
-    
-        for i, (imgs, labels) in enumerate(iterator):
+    with torch.cuda.amp.autocast():
+        with torch.no_grad():
 
-            imgs = imgs.to(device)
-            labels_device = labels.to(device)
+            for i, (imgs, labels) in enumerate(iterator):
 
-            output = model(imgs)
-            predictions = output.argmax(axis=1).detach().cpu().numpy().astype(int)
+                imgs = imgs.to(device)
+                labels_device = labels.to(device)
 
-            loss = criterion(output, labels_device)
-            
-            epoch_loss += loss.item()
-            
-            epoch_accuracy += accuracy_score(labels.numpy().astype(int), predictions)
+                output = model(imgs)
+                predictions = output.argmax(axis=1).detach().cpu().numpy().astype(int)
+
+                loss = criterion(output, labels_device)
+
+                epoch_loss += loss.item()
+
+                if segmentation:
+                    epoch_accuracy += accuracy2d_mean(predictions, labels.numpy())
+                else:
+                    epoch_accuracy += accuracy_score(labels.numpy().astype(int), predictions)
          
     return epoch_loss / len(iterator), epoch_accuracy / len(iterator)
 
 
 def train_procedure(n_epochs, model, train_iterator, val_iterator, optimizer, criterion,
-                   saves_path, device, start_epoch=0, scheduler=None, model_name='vgg11'):
+                   saves_path, device, start_epoch=0, scheduler=None, model_name='vgg11',
+                    segmentation=False):
     logs_path = os.path.join(saves_path, f'logs/logs_{model_name}.json')
     ckpt_path = os.path.join(saves_path, f'ckpts3/{model_name}_model.pt')
     
@@ -151,7 +169,7 @@ def train_procedure(n_epochs, model, train_iterator, val_iterator, optimizer, cr
     
         train_loss = train(model, train_iterator, optimizer, criterion, device,  model_logs['train_history'],
                            model_logs['valid_history'], model_logs['accuracy_history']) 
-        valid_loss, accuracy = evaluate(model, val_iterator, criterion, device)
+        valid_loss, accuracy = evaluate(model, val_iterator, criterion, device, segmentation=segmentation)
         
         if scheduler is not None:
             scheduler.step(valid_loss)
@@ -172,15 +190,16 @@ def train_procedure(n_epochs, model, train_iterator, val_iterator, optimizer, cr
             json.dump(logs, f)
         
         
-def load_model(model, optimizer, ckpt_path, device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')):
+def load_model(model, ckpt_path, optimizer=None, device=None):
     checkpoint = torch.load(ckpt_path, device)
     model.load_state_dict(checkpoint['model_state_dict'])
     epoch = checkpoint['epoch']
     
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    for state in optimizer.state.values():
-        for k, v in state.items():
-            if torch.is_tensor(v):
-                state[k] = v.cuda(device)
-            
+    if optimizer is not None:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.cuda(device)
+
     return epoch

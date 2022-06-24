@@ -57,12 +57,12 @@ class DenseNet(nn.Sequential):
         """
         self.in_channels = in_channels
         
-        layers = [nn.Conv2d(kernel_size=7, in_channels=3, out_channels=64, stride=2, padding=3, bias=False),
-                  nn.BatchNorm2d(num_features=64), 
+        layers = [nn.Conv2d(kernel_size=7, in_channels=3, out_channels=k_factor * 2, stride=2, padding=3, bias=False),
+                  nn.BatchNorm2d(num_features=k_factor * 2), 
                   nn.ReLU(inplace=True),
                   nn.MaxPool2d(kernel_size=3, stride=2, padding=1)]
         
-        in_channels = 2 * k_factor
+        in_channels = k_factor * 2
         
         for num_units in num_units_collection[:-1]:
             dense_block = DenseBlock(in_channels=in_channels, k_factor=k_factor,
