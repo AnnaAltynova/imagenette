@@ -24,8 +24,8 @@ class ConvBlock(nn.Sequential):
 
 class FCN(nn.Module):
     """FCN with DenseNet121 backbone"""
-    def __init__(self, num_classes=151, num_units_collection=(3, 6, 12, 8), k_factor=16, 
-                 pretrained=False, ckpt_path=f'saves/ckpts3/densenet121new_model.pt'):
+    def __init__(self, num_classes=151, num_units_collection=(3, 6, 12, 8), k_factor=12, 
+                 pretrained=False, ckpt_path=f'saves/ckpts3/densenet_staged_model.pt'):
         super().__init__()
         densenet_out = []  # densenet_blocks out_channels
         channels = k_factor * 2 
@@ -41,11 +41,12 @@ class FCN(nn.Module):
         if pretrained:
             _ = load_model(model=densenet, ckpt_path=ckpt_path)
         
+        
         densenet_modules = nn.ModuleList(densenet.children()) 
-        self.blockpool1 = nn.Sequential(*densenet_modules[:7])    # transition 1
-        self.blockpool2 = nn.Sequential(*densenet_modules[7:10])  # transition 2
-        self.blockpool3 = nn.Sequential(*densenet_modules[10:13]) # transition 3
-        self.block4 = densenet_modules[13]                        # DenseBlock4(BN-relu-conv)
+        self.blockpool1 = nn.Sequential(*[densenet.layers['initial_block'], densenet.layers['blockpool1']])    # transition 1
+        self.blockpool2 = densenet.layers['blockpool2']    # transition 2
+        self.blockpool3 = densenet.layers['blockpool3']    # transition 3
+        self.block4 = densenet.layers['block4']            # DenseBlock4(BN-relu-conv)
         
         self.deconv4 = ConvBlock(deconv=False, stride=1, kernel_size=1, 
                                  in_channels=densenet_out[3], out_channels=densenet_out[2]) # block4 -> blockpool3, 
@@ -63,25 +64,19 @@ class FCN(nn.Module):
         
     def forward(self, x):
         inputs = x
-        x = self.blockpool1(x)
-        pool1 = x
-        x = self.blockpool2(x)
-        pool2 = x
-        x = self.blockpool3(x)
-        pool3 = x
-        x = self.block4(x)
+        pool1 = self.blockpool1(x)
+        pool2 = self.blockpool2(pool1)
+        pool3 = self.blockpool3(pool2)
+        x = self.block4(pool3)
         
         x = self.deconv4(x)
         x = x + pool3
-        
         x = self.deconv3(x)
         x = F.pad(input=x, pad=self.count_padding(pool2, x))
         x = x + pool2
-        
         x = self.deconv2(x)
         x = F.pad(input=x, pad=self.count_padding(pool1, x))
         x = x + pool1
-        
         x = self.classifier(x)
         x = F.pad(input=x, pad=self.count_padding(inputs, x))
         return x

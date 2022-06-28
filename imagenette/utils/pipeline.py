@@ -73,7 +73,7 @@ def plot_models(models_logs=['logs_resnet18_aug_lr4.json'], saves_path='saves/lo
     return 
 
 
-def train(model, iterator, optimizer, criterion, device, train_history=None, valid_history=None, accuracy_history=None):
+def train(model, iterator, optimizer, criterion, device, train_history=None, valid_history=None, accuracy_history=None, amp=True, staged=False):
     model.train()
     
     epoch_loss = 0
@@ -85,9 +85,10 @@ def train(model, iterator, optimizer, criterion, device, train_history=None, val
         
         optimizer.zero_grad()
         
-        with torch.cuda.amp.autocast():
+        with torch.cuda.amp.autocast(enabled=amp):
             output = model(imgs)
-
+            if staged:
+                output = output[-1] 
             loss = criterion(output, labels)
         
         loss.backward()
@@ -115,14 +116,14 @@ def accuracy2d_mean(preds, mask):
     return preds_correct_not_background.size / not_background_mask.size
 
 
-def evaluate(model, iterator, criterion, device, segmentation=False):
+def evaluate(model, iterator, criterion, device, segmentation=False, amp=True, staged=False):
     
     model.eval()
     
     epoch_loss = 0
     epoch_accuracy = 0
     
-    with torch.cuda.amp.autocast():
+    with torch.cuda.amp.autocast(enabled=amp):
         with torch.no_grad():
 
             for i, (imgs, labels) in enumerate(iterator):
@@ -131,6 +132,8 @@ def evaluate(model, iterator, criterion, device, segmentation=False):
                 labels_device = labels.to(device)
 
                 output = model(imgs)
+                if staged:
+                    output = output[-1]
                 predictions = output.argmax(axis=1).detach().cpu().numpy().astype(int)
 
                 loss = criterion(output, labels_device)
@@ -147,7 +150,8 @@ def evaluate(model, iterator, criterion, device, segmentation=False):
 
 def train_procedure(n_epochs, model, train_iterator, val_iterator, optimizer, criterion,
                    saves_path, device, start_epoch=0, scheduler=None, model_name='vgg11',
-                    segmentation=False):
+                    segmentation=False, amp=True, staged=False):
+    
     logs_path = os.path.join(saves_path, f'logs/logs_{model_name}.json')
     ckpt_path = os.path.join(saves_path, f'ckpts3/{model_name}_model.pt')
     
@@ -167,9 +171,16 @@ def train_procedure(n_epochs, model, train_iterator, val_iterator, optimizer, cr
     
     for epoch in range(start_epoch, n_epochs):
     
-        train_loss = train(model, train_iterator, optimizer, criterion, device,  model_logs['train_history'],
-                           model_logs['valid_history'], model_logs['accuracy_history']) 
-        valid_loss, accuracy = evaluate(model, val_iterator, criterion, device, segmentation=segmentation)
+        train_loss = train(model=model, iterator=train_iterator, optimizer=optimizer,
+                           criterion=criterion, device=device,  train_history=model_logs['train_history'],
+                           valid_history=model_logs['valid_history'],
+                           accuracy_history=model_logs['accuracy_history'],
+                           amp=amp, staged=staged)
+        
+        valid_loss, accuracy = evaluate(model=model, iterator=val_iterator,
+                                        criterion=criterion, device=device, 
+                                        segmentation=segmentation, amp=amp,
+                                        staged=staged)
         
         if scheduler is not None:
             scheduler.step(valid_loss)
