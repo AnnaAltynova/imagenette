@@ -49,8 +49,8 @@ class FCN(nn.Module):
         self.block4 = densenet.layers['block4']            # DenseBlock4(BN-relu-conv)
         
         self.deconv4 = ConvBlock(deconv=False, stride=1, kernel_size=1, 
-                                 in_channels=densenet_out[3], out_channels=densenet_out[2]) # block4 -> blockpool3, 
-        self.deconv3 = ConvBlock(stride=4, kernel_size=4, in_channels=densenet_out[2], out_channels=densenet_out[1]) # blockpool3 -> blockpool2 
+                                 in_channels=densenet_out[3], out_channels=densenet_out[2])                          # block4 -> blockpool3, 
+        self.deconv3 = ConvBlock(stride=2, kernel_size=2, in_channels=densenet_out[2], out_channels=densenet_out[1]) # blockpool3 -> blockpool2 
         self.deconv2 = ConvBlock(stride=2, kernel_size=2, in_channels=densenet_out[1], out_channels=densenet_out[0]) # blockpool2 -> blockpool1 
         self.classifier = ConvBlock(kernel_size=8, stride=8, in_channels=densenet_out[0], out_channels=num_classes)
         
@@ -66,12 +66,15 @@ class FCN(nn.Module):
         inputs = x
         pool1 = self.blockpool1(x)
         pool2 = self.blockpool2(pool1)
+         # 32
         pool3 = self.blockpool3(pool2)
+        
         x = self.block4(pool3)
         
         x = self.deconv4(x)
         x = x + pool3
         x = self.deconv3(x)
+         # 64
         x = F.pad(input=x, pad=self.count_padding(pool2, x))
         x = x + pool2
         x = self.deconv2(x)
