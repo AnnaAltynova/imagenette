@@ -73,7 +73,7 @@ def plot_models(models_logs=['logs_resnet18_aug_lr4.json'], saves_path='saves/lo
     return 
 
 
-def train(model, iterator, optimizer, criterion, device, train_history=None, valid_history=None, accuracy_history=None, amp=True, staged=False):
+def train(model, iterator, optimizer, criterion, device, train_history=None, valid_history=None, accuracy_history=None, staged=False):
     model.train()
     
     epoch_loss = 0
@@ -85,11 +85,10 @@ def train(model, iterator, optimizer, criterion, device, train_history=None, val
         
         optimizer.zero_grad()
         
-        with torch.cuda.amp.autocast(enabled=amp):
-            output = model(imgs)
-            if staged:
-                output = output[-1] 
-            loss = criterion(output, labels)
+        output = model(imgs)
+        if staged:
+            output = output[-1] 
+        loss = criterion(output, labels)
         
         loss.backward()
         
@@ -98,10 +97,6 @@ def train(model, iterator, optimizer, criterion, device, train_history=None, val
         epoch_loss += loss.item()
         
         history.append(loss.cpu().data.numpy())
-        del output
-        del loss
-        del imgs
-        del labels
         
         if (i + 1) % 10 == 0:
             make_plot(history, train_history, valid_history, accuracy_history)
@@ -116,41 +111,38 @@ def accuracy2d_mean(preds, mask):
     return preds_correct_not_background.size / not_background_mask.size
 
 
-def evaluate(model, iterator, criterion, device, segmentation=False, amp=True, staged=False):
+def evaluate(model, iterator, criterion, device, segmentation=False, staged=False):
     
     model.eval()
     
     epoch_loss = 0
     epoch_accuracy = 0
     
-    with torch.cuda.amp.autocast(enabled=amp):
-        with torch.no_grad():
+    with torch.no_grad():
+        for i, (imgs, labels) in enumerate(iterator):
+            imgs = imgs.to(device)
+            labels_device = labels.to(device)
 
-            for i, (imgs, labels) in enumerate(iterator):
+            output = model(imgs)
+            if staged:
+                output = output[-1]
+            predictions = output.argmax(axis=1).detach().cpu().numpy().astype(int)
 
-                imgs = imgs.to(device)
-                labels_device = labels.to(device)
+            loss = criterion(output, labels_device)
 
-                output = model(imgs)
-                if staged:
-                    output = output[-1]
-                predictions = output.argmax(axis=1).detach().cpu().numpy().astype(int)
+            epoch_loss += loss.item()
 
-                loss = criterion(output, labels_device)
-
-                epoch_loss += loss.item()
-
-                if segmentation:
-                    epoch_accuracy += accuracy2d_mean(predictions, labels.numpy())
-                else:
-                    epoch_accuracy += accuracy_score(labels.numpy().astype(int), predictions)
+            if segmentation:
+                epoch_accuracy += accuracy2d_mean(predictions, labels.numpy())
+            else:
+                epoch_accuracy += accuracy_score(labels.numpy().astype(int), predictions)
          
     return epoch_loss / len(iterator), epoch_accuracy / len(iterator)
 
 
 def train_procedure(n_epochs, model, train_iterator, val_iterator, optimizer, criterion,
                    saves_path, device, start_epoch=0, scheduler=None, model_name='vgg11',
-                    segmentation=False, amp=True, staged=False):
+                    segmentation=False, staged=False):
     
     logs_path = os.path.join(saves_path, f'logs/logs_{model_name}.json')
     ckpt_path = os.path.join(saves_path, f'ckpts3/{model_name}_model.pt')
@@ -175,11 +167,11 @@ def train_procedure(n_epochs, model, train_iterator, val_iterator, optimizer, cr
                            criterion=criterion, device=device,  train_history=model_logs['train_history'],
                            valid_history=model_logs['valid_history'],
                            accuracy_history=model_logs['accuracy_history'],
-                           amp=amp, staged=staged)
+                           staged=staged)
         
         valid_loss, accuracy = evaluate(model=model, iterator=val_iterator,
                                         criterion=criterion, device=device, 
-                                        segmentation=segmentation, amp=amp,
+                                        segmentation=segmentation,
                                         staged=staged)
         
         if scheduler is not None:

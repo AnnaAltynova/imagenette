@@ -125,8 +125,6 @@ class AdeDataset(Dataset):
     def __getitem__(self, idx):
         image_path = os.path.join(self.path_to_images, self.images_path_collection[idx])
         mask_path = os.path.join(self.path_to_masks, self.images_path_collection[idx].replace('.jpg', '.png'))
-        # image = Image.open(image_path).convert('RGB')
-        # mask = Image.open(mask_path)
         image = cv2.imread(image_path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         mask = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)

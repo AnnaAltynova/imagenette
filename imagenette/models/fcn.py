@@ -7,7 +7,7 @@ from utils import load_model
 
 
 class ConvBlock(nn.Sequential):
-    # preserves densenet convblock order
+        # preserves densenet convblock order
         def __init__(self, stride=37, kernel_size=4, in_channels=10, out_channels=10, deconv=True):
             layers = []
             layers.append(nn.BatchNorm2d(num_features=in_channels))  
@@ -25,9 +25,9 @@ class ConvBlock(nn.Sequential):
 class FCN(nn.Module):
     """FCN with DenseNet121 backbone"""
     def __init__(self, num_classes=151, num_units_collection=(3, 6, 12, 8), k_factor=12, 
-                 pretrained=False, ckpt_path=f'saves/ckpts3/densenet_staged_model.pt'):
+                 pretrained=False, ckpt_path=f'saves/ckpts3/densenet_staged_model.pt', use_dropout=False, dropout_prob=0.5):
         super().__init__()
-        densenet_out = []  # densenet_blocks out_channels
+        densenet_out = []  
         channels = k_factor * 2 
         for num_units in num_units_collection[:-1]:
             out_channels = (channels + k_factor * num_units) // 2
@@ -44,43 +44,37 @@ class FCN(nn.Module):
         
         densenet_modules = nn.ModuleList(densenet.children()) 
         self.blockpool1 = nn.Sequential(*[densenet.layers['initial_block'], densenet.layers['blockpool1']])    # transition 1
-        self.blockpool2 = densenet.layers['blockpool2']    # transition 2
-        self.blockpool3 = densenet.layers['blockpool3']    # transition 3
-        self.block4 = densenet.layers['block4']            # DenseBlock4(BN-relu-conv)
+        self.blockpool2 = densenet.layers['blockpool2']                                                        # transition 2
+        self.blockpool3 = densenet.layers['blockpool3']                                                        # transition 3
+        self.block4 = densenet.layers['block4']                                                                # DenseBlock4(BN-relu-conv)
         
-        self.deconv4 = ConvBlock(deconv=False, stride=1, kernel_size=1, 
-                                 in_channels=densenet_out[3], out_channels=densenet_out[2])                          # block4 -> blockpool3, 
-        self.deconv3 = ConvBlock(stride=2, kernel_size=2, in_channels=densenet_out[2], out_channels=densenet_out[1]) # blockpool3 -> blockpool2 
-        self.deconv2 = ConvBlock(stride=2, kernel_size=2, in_channels=densenet_out[1], out_channels=densenet_out[0]) # blockpool2 -> blockpool1 
-        self.classifier = ConvBlock(kernel_size=8, stride=8, in_channels=densenet_out[0], out_channels=num_classes)
+        channels = densenet_out[2] + densenet_out[3]
+        self.deconv3 = ConvBlock(stride=2, kernel_size=2, in_channels=channels, out_channels=channels)         # blockpool3 -> blockpool2 
+        channels += densenet_out[1]
+        self.deconv2 = ConvBlock(stride=2, kernel_size=2, in_channels=channels, out_channels=channels)         # blockpool2 -> blockpool1 
+        channels += densenet_out[0]
+        self.pointwise = ConvBlock(kernel_size=1, stride=1, in_channels=channels, out_channels=num_classes, deconv=False)
+        self.drop = nn.Dropout(p=dropout_prob,  inplace=True) if use_dropout else nn.Identity() 
+        self.classifier = ConvBlock(kernel_size=8, stride=8, in_channels=num_classes, out_channels=num_classes)
         
-        
-    def count_padding(self, target, x):
-        height = (target.shape[2] - x.shape[2]) 
-        width = (target.shape[3] - x.shape[3])
-        pad = width // 2, width // 2 + width % 2, height // 2, height // 2 + height % 2
-        return pad
     
-        
     def forward(self, x):
         inputs = x
         pool1 = self.blockpool1(x)
         pool2 = self.blockpool2(pool1)
-         # 32
         pool3 = self.blockpool3(pool2)
         
         x = self.block4(pool3)
-        
-        x = self.deconv4(x)
-        x = x + pool3
+        x = torch.cat([x, pool3], dim=1)
         x = self.deconv3(x)
-         # 64
-        x = F.pad(input=x, pad=self.count_padding(pool2, x))
-        x = x + pool2
+        
+        x = torch.cat([x, pool2], dim=1)
         x = self.deconv2(x)
-        x = F.pad(input=x, pad=self.count_padding(pool1, x))
-        x = x + pool1
+        
+        x = torch.cat([x, pool1], dim=1)
+        x = self.pointwise(x)
+        x = self.drop(x)
         x = self.classifier(x)
-        x = F.pad(input=x, pad=self.count_padding(inputs, x))
+        
         return x
     
