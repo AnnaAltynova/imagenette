@@ -20,11 +20,13 @@ class PixelShuffle(nn.Module):
         self.upscale_factor = upscale_factor
 
     def forward(self, x):
-        batch_size, channels, *dims = x.size()
+        batch_size, channels, *dims = x.size()                                         # (B, C * r^N, H, W)
         ndims = len(dims)
         channels //= (self.upscale_factor**ndims)
+        
+        factor_expand = [self.upscale_factor] * ndims
         x = x.contiguous().view(                                                       # (B, C, r, r, H, W)
-            batch_size, channels, *(self.upscale_factor for i in range(ndims)), *dims
+            batch_size, channels, *factor_expand, *dims
             )
 
         permute = [None] * (2 * ndims)
@@ -37,9 +39,7 @@ class PixelShuffle(nn.Module):
         return x
 
     def extra_repr(self):
-        """ Report upscale factor for a repr. """
-        info = f'upscale_factor={self.upscale_factor}'
-        return info
+        return f'upscale_factor={self.upscale_factor}'
 
 
 
@@ -57,31 +57,25 @@ class PixelUnshuffle(nn.Module):
         self.downscale_factor = downscale_factor
         
     def forward(self, x):
+        x = x.contiguous()                                                             # (B, C, H * r, B * r)
         batch_size, channels, *dims = x.size()
         ndims = len(dims)
-
-        x = x.contiguous()                                                             # (B, C, H * r, B * r)
 
         out_dims = [dim // self.downscale_factor for dim in dims]
         reshape = [None] * (2 * ndims)
         reshape[::2] = out_dims
         reshape[1::2] = [self.downscale_factor for i in range(ndims)]
         
-        # Undo the last view
         x = x.view(batch_size, channels, *reshape)                                     # (B, C, H, r, W, r)
-
-        # Undo permutation
+        
         permute = [None] * (2 * ndims)
         permute[:2 * ndims] = range(3, 2 * ndims + 2, 2)      
         permute[2 * ndims:] = range(2, 2 * ndims + 1, 2)
         x = x.permute(0, 1, *permute).contiguous()                                     # (B, C, r, r, H, W)
 
-        # Undo the first view
         out_channels = channels * self.downscale_factor ** ndims
         x = x.view(batch_size, out_channels, *out_dims).contiguous()                   # (B, C * r^N, H, W)
         return x
 
     def extra_repr(self):
-        """ Report downscale factor for a repr. """
-        info = f'downscale_factor={self.downscale_factor}'
-        return info
+        return f'downscale_factor={self.downscale_factor}'
